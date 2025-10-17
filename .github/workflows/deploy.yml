@@ -11,6 +11,7 @@ env:
   HUAWEICLOUD_PROJECT_ID: ${{ secrets.HUAWEICLOUD_PROJECT_ID }}
   HUAWEICLOUD_ACCESS_KEY: ${{ secrets.HUAWEICLOUD_ACCESS_KEY }}
   HUAWEICLOUD_SECRET_KEY: ${{ secrets.HUAWEICLOUD_SECRET_KEY }}
+  HUAWEICLOUD_FUNCTION_AGENCY: ${{ secrets.HUAWEICLOUD_FUNCTION_AGENCY }}
   SWR_ORGANIZATION: ${{ secrets.SWR_ORGANIZATION }}
   SWR_NAMESPACE: ${{ secrets.SWR_NAMESPACE }}
   SWR_ENDPOINT: ${{ secrets.SWR_ENDPOINT }}
@@ -70,6 +71,10 @@ jobs:
           endpoint = os.environ["SWR_ENDPOINT"].rstrip("/")
           organization = os.environ["SWR_ORGANIZATION"].strip("/")
           namespace = os.environ.get("SWR_NAMESPACE", "").strip("/")
+          agency = os.environ.get("HUAWEICLOUD_FUNCTION_AGENCY", "").strip()
+
+          if not agency:
+              raise SystemExit("HUAWEICLOUD_FUNCTION_AGENCY environment variable must be set for Terraform inputs")
 
           for project in sorted(projects_root.iterdir()):
               if not project.is_dir():
@@ -89,11 +94,11 @@ jobs:
               functions[name] = {
                   "name": name,
                   "description": f"Auto FunctionGraph deployment for {name}",
-                  "handler": "app.handler",
-                  "runtime": "Python3.10",
+                  "handler": "-",
                   "memory_size": 256,
                   "timeout": 30,
-                  "image": image,
+                  "agency": agency,
+                  "image_url": image,
               }
 
           terraform_dir = pathlib.Path("terraform")
