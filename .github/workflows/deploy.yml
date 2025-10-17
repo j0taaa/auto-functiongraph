@@ -18,6 +18,7 @@ env:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: autofg
 
     steps:
       - name: Checkout repository
