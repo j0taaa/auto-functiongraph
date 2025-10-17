@@ -43,7 +43,7 @@ Auto FunctionGraph accelerates building and deploying containerized functions to
          runtime     = "Python3.10"
          memory_size = 256
          timeout     = 30
-         image       = "<swr-endpoint>/<namespace>/sample-function:<tag>"
+         image       = "<swr-endpoint>/<organization>/sample-function:<tag>"
        }
      }
      ```
@@ -61,7 +61,7 @@ The GitHub Actions workflow in `.github/workflows/deploy.yml` performs the follo
 
 1. Checks out the repository.
 2. Configures Docker Buildx and logs in to the target SWR registry.
-3. Iterates through every directory inside `projects/`, builds a Docker image for each function, tags it with the current commit SHA, and pushes it to SWR.
+3. Iterates through every directory inside `projects/`, builds a Docker image for each function, tags it with the current commit SHA, and pushes it to SWR under the configured organization (and optional namespace).
 4. Generates `terraform/functions.auto.tfvars.json` so Terraform has the latest image URIs and default function settings.
 5. Runs `terraform init` and `terraform apply` to create or update FunctionGraph functions using the uploaded images.
 
@@ -76,9 +76,12 @@ Store the following secrets in your repository settings for the workflow to succ
 | `HUAWEICLOUD_ACCESS_KEY` | Access key for Huawei Cloud credentials. |
 | `HUAWEICLOUD_SECRET_KEY` | Secret key for Huawei Cloud credentials. |
 | `SWR_ENDPOINT` | Fully qualified SWR registry endpoint (e.g., `swr.ap-southeast-1.myhuaweicloud.com`). |
-| `SWR_NAMESPACE` | SWR namespace that stores function images. |
+| `SWR_ORGANIZATION` | SWR organization that owns the image repositories. |
+| `SWR_NAMESPACE` | Optional additional namespace or folder beneath the organization. |
 | `SWR_USERNAME` | Username for authenticating to SWR. |
 | `SWR_PASSWORD` | Password or access token for SWR authentication. |
+
+If you do not organize repositories under a secondary namespace, you can omit `SWR_NAMESPACE` and it will be ignored.
 
 ## Local development tips
 

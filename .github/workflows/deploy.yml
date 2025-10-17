@@ -11,6 +11,7 @@ env:
   HUAWEICLOUD_PROJECT_ID: ${{ secrets.HUAWEICLOUD_PROJECT_ID }}
   HUAWEICLOUD_ACCESS_KEY: ${{ secrets.HUAWEICLOUD_ACCESS_KEY }}
   HUAWEICLOUD_SECRET_KEY: ${{ secrets.HUAWEICLOUD_SECRET_KEY }}
+  SWR_ORGANIZATION: ${{ secrets.SWR_ORGANIZATION }}
   SWR_NAMESPACE: ${{ secrets.SWR_NAMESPACE }}
   SWR_ENDPOINT: ${{ secrets.SWR_ENDPOINT }}
 
@@ -49,15 +50,21 @@ jobs:
 
           functions = {}
           commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-          endpoint = os.environ["SWR_ENDPOINT"]
-          namespace = os.environ["SWR_NAMESPACE"]
+          endpoint = os.environ["SWR_ENDPOINT"].rstrip("/")
+          organization = os.environ["SWR_ORGANIZATION"].strip("/")
+          namespace = os.environ.get("SWR_NAMESPACE", "").strip("/")
 
           for project in sorted(projects_root.iterdir()):
               if not project.is_dir():
                   continue
 
               name = project.name
-              image = f"{endpoint}/{namespace}/{name}:{commit}"
+              path_parts = [organization]
+              if namespace:
+                  path_parts.append(namespace)
+              path_parts.append(name)
+
+              image = f"{endpoint}/{'/'.join(path_parts)}:{commit}"
 
               subprocess.run(["docker", "build", "-t", image, str(project)], check=True)
               subprocess.run(["docker", "push", image], check=True)
