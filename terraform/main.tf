@@ -23,15 +23,18 @@ resource "huaweicloud_fgs_function" "function" {
   for_each = local.functions
 
   name        = each.value.name
-  description = each.value.description
+  description = lookup(each.value, "description", "")
   package     = "default"
-  handler     = each.value.handler
-  memory_size = each.value.memory_size
-  timeout     = each.value.timeout
+  app         = lookup(each.value, "app", "default")
+  handler     = lookup(each.value, "handler", "-")
+  memory_size = lookup(each.value, "memory_size", 128)
+  timeout     = lookup(each.value, "timeout", 30)
 
-  runtime = each.value.runtime
+  runtime   = "Custom Image"
+  code_type = "Custom-Image-Swr"
+  agency    = each.value.agency
 
-  code {
-    image = each.value.image
+  custom_image {
+    url = each.value.image_url
   }
 }
