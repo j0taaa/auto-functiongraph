@@ -1,6 +1,12 @@
-# Sample FunctionGraph container
-FROM public.ecr.aws/lambda/python:3.10
+# Sample FunctionGraph-compliant container image
+FROM python:3.10-slim
 
-COPY src/ /var/task/
+WORKDIR /opt/function
 
-CMD ["app.handler"]
+COPY src/ .
+
+EXPOSE 8000
+
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "-m", "server"]
