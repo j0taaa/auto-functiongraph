@@ -30,7 +30,6 @@ resource "huaweicloud_fgs_function" "function" {
   timeout     = lookup(each.value, "timeout", 30)
 
   runtime   = "Custom Image"
-  code_type = "Custom-Image-Swr"
   agency    = each.value.agency
 
   custom_image {
