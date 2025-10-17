@@ -1,0 +1,104 @@
+name: Build and Deploy FunctionGraph Containers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  HUAWEICLOUD_REGION: ${{ secrets.HUAWEICLOUD_REGION }}
+  HUAWEICLOUD_PROJECT_ID: ${{ secrets.HUAWEICLOUD_PROJECT_ID }}
+  HUAWEICLOUD_ACCESS_KEY: ${{ secrets.HUAWEICLOUD_ACCESS_KEY }}
+  HUAWEICLOUD_SECRET_KEY: ${{ secrets.HUAWEICLOUD_SECRET_KEY }}
+  SWR_ORGANIZATION: ${{ secrets.SWR_ORGANIZATION }}
+  SWR_NAMESPACE: ${{ secrets.SWR_NAMESPACE }}
+  SWR_ENDPOINT: ${{ secrets.SWR_ENDPOINT }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to SWR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.SWR_ENDPOINT }}
+          username: ${{ secrets.SWR_USERNAME }}
+          password: ${{ secrets.SWR_PASSWORD }}
+
+      - name: Build and push function images
+        run: |
+          python <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          projects_root = pathlib.Path("projects")
+          if not projects_root.exists():
+              raise SystemExit("No projects directory found")
+
+          functions = {}
+          commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+          endpoint = os.environ["SWR_ENDPOINT"].rstrip("/")
+          organization = os.environ["SWR_ORGANIZATION"].strip("/")
+          namespace = os.environ.get("SWR_NAMESPACE", "").strip("/")
+
+          for project in sorted(projects_root.iterdir()):
+              if not project.is_dir():
+                  continue
+
+              name = project.name
+              path_parts = [organization]
+              if namespace:
+                  path_parts.append(namespace)
+              path_parts.append(name)
+
+              image = f"{endpoint}/{'/'.join(path_parts)}:{commit}"
+
+              subprocess.run(["docker", "build", "-t", image, str(project)], check=True)
+              subprocess.run(["docker", "push", image], check=True)
+
+              functions[name] = {
+                  "name": name,
+                  "description": f"Auto FunctionGraph deployment for {name}",
+                  "handler": "app.handler",
+                  "runtime": "Python3.10",
+                  "memory_size": 256,
+                  "timeout": 30,
+                  "image": image,
+              }
+
+          terraform_dir = pathlib.Path("terraform")
+          terraform_dir.mkdir(exist_ok=True)
+          with open(terraform_dir / "functions.auto.tfvars.json", "w", encoding="utf-8") as fh:
+              json.dump({"functions": functions}, fh)
+          PY
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: terraform
+        env:
+          TF_VAR_region: ${{ env.HUAWEICLOUD_REGION }}
+          TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
+          TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
+          TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+        run: terraform apply -auto-approve
