@@ -23,12 +23,13 @@ variable "secret_key" {
 variable "functions" {
   description = "Map of FunctionGraph function definitions keyed by logical name."
   type = map(object({
-    name        = string
-    description = optional(string, "")
-    handler     = string
-    runtime     = string
-    memory_size = optional(number, 128)
-    timeout     = optional(number, 30)
-    image       = string
+    name         = string
+    description  = optional(string, "")
+    agency       = string
+    app          = optional(string, "default")
+    handler      = optional(string, "-")
+    memory_size  = optional(number, 128)
+    timeout      = optional(number, 30)
+    image_url    = string
   }))
 }

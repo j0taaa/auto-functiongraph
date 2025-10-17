@@ -39,14 +39,16 @@ Auto FunctionGraph accelerates building and deploying containerized functions to
        sample-function = {
          name        = "sample-function"
          description = "Sample function managed by Auto FunctionGraph"
-         handler     = "app.handler"
-         runtime     = "Python3.10"
+         agency      = "functiongraph_admin_agency"
+         handler     = "-" # Custom image functions always use "-"
          memory_size = 256
          timeout     = 30
-         image       = "<swr-endpoint>/<organization>/sample-function:<tag>"
+         image_url   = "<swr-endpoint>/<organization>/sample-function:<tag>"
        }
      }
      ```
+
+     The `agency` value should reference a FunctionGraph administrator agency that grants the deployment pipeline permission to use SWR images. Set `handler` to `"-"` (or omit it) when running custom images, because the entrypoint inside the container controls the execution logic.
 
 4. **Apply infrastructure locally (optional)**
    ```bash
