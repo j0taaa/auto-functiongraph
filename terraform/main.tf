@@ -24,7 +24,6 @@ resource "huaweicloud_fgs_function" "function" {
 
   name        = each.value.name
   description = lookup(each.value, "description", "")
-  package     = "default"
   app         = lookup(each.value, "app", "default")
   handler     = lookup(each.value, "handler", "-")
   memory_size = lookup(each.value, "memory_size", 128)

@@ -64,7 +64,7 @@ The GitHub Actions workflow in `.github/workflows/deploy.yml` performs the follo
 1. Checks out the repository.
 2. Configures Docker Buildx and logs in to the target SWR registry.
 3. Iterates through every directory inside `projects/`, builds a Docker image for each function, tags it with the current commit SHA, and pushes it to SWR under the configured organization (and optional namespace).
-4. Generates `terraform/functions.auto.tfvars.json` so Terraform has the latest image URIs and default function settings.
+4. Generates `terraform/functions.auto.tfvars.json` so Terraform has the latest image URIs, agency, and default function settings.
 5. Runs `terraform init` and `terraform apply` to create or update FunctionGraph functions using the uploaded images.
 
 ### Required secrets
@@ -77,6 +77,7 @@ Store the following secrets in your repository settings for the workflow to succ
 | `HUAWEICLOUD_PROJECT_ID` | Huawei Cloud project ID where FunctionGraph functions will be created. |
 | `HUAWEICLOUD_ACCESS_KEY` | Access key for Huawei Cloud credentials. |
 | `HUAWEICLOUD_SECRET_KEY` | Secret key for Huawei Cloud credentials. |
+| `HUAWEICLOUD_FUNCTION_AGENCY` | Name of the FunctionGraph administrator agency that allows custom images to run. |
 | `SWR_ENDPOINT` | Fully qualified SWR registry endpoint (e.g., `swr.ap-southeast-1.myhuaweicloud.com`). |
 | `SWR_ORGANIZATION` | SWR organization that owns the image repositories. |
 | `SWR_NAMESPACE` | Optional additional namespace or folder beneath the organization. |
