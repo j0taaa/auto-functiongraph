@@ -9,4 +9,4 @@ EXPOSE 8000
 
 ENV PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["python", "-m", "server"]
+ENTRYPOINT ["python", "server.py"]
