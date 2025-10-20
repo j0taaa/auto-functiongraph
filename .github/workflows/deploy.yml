@@ -120,6 +120,78 @@ jobs:
           AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
         run: terraform init
 
+      - name: Import existing functions into state
+        working-directory: terraform
+        env:
+          TF_VAR_region: ${{ env.HUAWEICLOUD_REGION }}
+          TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
+          TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
+          TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          tfvars_path = pathlib.Path("functions.auto.tfvars.json")
+          if not tfvars_path.exists():
+              raise SystemExit("functions.auto.tfvars.json not found; build step must run before import")
+
+          with tfvars_path.open("r", encoding="utf-8") as fh:
+              data = json.load(fh)
+
+          functions = data.get("functions", {})
+          if not functions:
+              raise SystemExit("No functions defined; nothing to import")
+
+          region = os.environ.get("TF_VAR_region", "").strip()
+          project_id = os.environ.get("TF_VAR_project_id", "").strip()
+
+          existing_state = subprocess.run([
+              "terraform",
+              "state",
+              "list",
+          ], capture_output=True, text=True, check=False)
+
+          tracked = set(line.strip() for line in existing_state.stdout.splitlines())
+
+          for logical_name, config in sorted(functions.items()):
+              addr = f'huaweicloud_fgs_function.function["{logical_name}"]'
+              if addr in tracked:
+                  continue
+
+              function_name = config.get("name", logical_name)
+              app = config.get("app", "default") or "default"
+
+              candidates = [function_name]
+              if region and project_id:
+                  base = f"urn:fss:{region}:{project_id}:function:{app}:{function_name}"
+                  candidates.append(base)
+                  candidates.append(f"{base}:latest")
+
+              imported = False
+              for candidate in candidates:
+                  result = subprocess.run([
+                      "terraform",
+                      "import",
+                      addr,
+                      candidate,
+                  ], capture_output=True, text=True)
+
+                  if result.returncode == 0:
+                      print(f"Imported {addr} using identifier '{candidate}'")
+                      imported = True
+                      break
+
+              if not imported:
+                  print(
+                      f"Warning: unable to import existing function for {addr}. "
+                      "If the function already exists, please import it manually or remove it before rerunning."
+                  )
+          PY
+
       - name: Terraform Apply
         working-directory: terraform
         env:
