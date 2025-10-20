@@ -114,6 +114,10 @@ jobs:
 
       - name: Terraform Init
         working-directory: terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
         run: terraform init
 
       - name: Terraform Apply
@@ -123,4 +127,7 @@ jobs:
           TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
           TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
         run: terraform apply -auto-approve
