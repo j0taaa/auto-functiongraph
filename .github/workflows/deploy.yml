@@ -117,8 +117,13 @@ jobs:
 
       - name: Install AWS CLI for OBS state sync
         run: |
+          set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y awscli
+          sudo apt-get install -y unzip
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -qq awscliv2.zip
+          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+          rm -rf aws awscliv2.zip
 
       - name: Configure AWS CLI for OBS
         env:
