@@ -21,10 +21,11 @@ terraform {
 }
 
 provider "huaweicloud" {
-  region     = var.region
-  access_key = var.access_key
-  secret_key = var.secret_key
-  project_id = var.project_id
+  region         = var.region
+  access_key     = var.access_key
+  secret_key     = var.secret_key
+  project_id     = var.project_id
+  security_token = var.security_token != "" ? var.security_token : null
 }
 
 locals {
