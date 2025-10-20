@@ -8,13 +8,35 @@ import logging
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logging.basicConfig(level=logging.INFO)
 _LOGGER = logging.getLogger("functiongraph.sample")
 
 _DEFAULT_HANDLER = "app.handler"
 _HANDLER: Optional[Callable[[Any, Any], Dict[str, Any]]] = None
+
+
+def _resolve_handler(
+    handler_ref: str,
+) -> Tuple[Optional[Callable[[Any, Any], Dict[str, Any]]], Optional[HTTPStatus], Optional[Dict[str, Any]]]:
+    """Attempt to import and return the callable referenced by ``handler_ref``."""
+
+    try:
+        module_name, function_name = handler_ref.rsplit(".", 1)
+    except ValueError:
+        return None, HTTPStatus.BAD_REQUEST, {"message": "Handler must be in 'module.function' format"}
+
+    try:
+        module = importlib.import_module(module_name)
+        candidate = getattr(module, function_name)
+    except (ImportError, AttributeError) as exc:
+        return None, HTTPStatus.BAD_REQUEST, {"message": "Unable to import handler", "details": str(exc)}
+
+    if not callable(candidate):
+        return None, HTTPStatus.BAD_REQUEST, {"message": "Handler attribute is not callable"}
+
+    return candidate, None, None
 
 
 class InvocationContext(SimpleNamespace):
@@ -63,30 +85,12 @@ class FunctionGraphHandler(BaseHTTPRequestHandler):
             return
 
         handler_ref = payload.get("handler", _DEFAULT_HANDLER)
-        try:
-            module_name, function_name = handler_ref.rsplit(".", 1)
-        except ValueError:
-            self._send_json(
-                HTTPStatus.BAD_REQUEST,
-                {"message": "Handler must be in 'module.function' format"},
-            )
-            return
+        candidate, status, error_payload = _resolve_handler(handler_ref)
 
-        try:
-            module = importlib.import_module(module_name)
-            candidate = getattr(module, function_name)
-        except (ImportError, AttributeError) as exc:
-            self._send_json(
-                HTTPStatus.BAD_REQUEST,
-                {"message": "Unable to import handler", "details": str(exc)},
-            )
-            return
-
-        if not callable(candidate):
-            self._send_json(
-                HTTPStatus.BAD_REQUEST,
-                {"message": "Handler attribute is not callable"},
-            )
+        if candidate is None:
+            status = status or HTTPStatus.INTERNAL_SERVER_ERROR
+            error_payload = error_payload or {"message": "Handler resolution failed"}
+            self._send_json(status, error_payload)
             return
 
         _HANDLER = candidate
@@ -94,12 +98,17 @@ class FunctionGraphHandler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, {"message": "Handler initialized", "handler": handler_ref})
 
     def _handle_invoke(self) -> None:
+        global _HANDLER
+
         if _HANDLER is None:
-            self._send_json(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                {"message": "Handler not initialized"},
-            )
-            return
+            candidate, status, error_payload = _resolve_handler(_DEFAULT_HANDLER)
+            if candidate is None:
+                status = status or HTTPStatus.INTERNAL_SERVER_ERROR
+                error_payload = error_payload or {"message": "Handler resolution failed"}
+                self._send_json(status, error_payload)
+                return
+            _HANDLER = candidate
+            _LOGGER.info("Handler lazily initialized: %s", _DEFAULT_HANDLER)
 
         try:
             payload = self._read_json_body()
