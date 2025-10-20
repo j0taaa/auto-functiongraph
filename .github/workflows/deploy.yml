@@ -141,13 +141,23 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
           AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
           AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
+          OBS_BUCKET_LOCATION: ${{ env.HUAWEICLOUD_REGION }}
         run: |
           set -euo pipefail
           if aws --endpoint-url "${OBS_ENDPOINT}" s3api head-bucket --bucket "${OBS_STATE_BUCKET}" 2>/dev/null; then
             echo "OBS bucket ${OBS_STATE_BUCKET} already exists"
           else
             echo "Creating OBS bucket ${OBS_STATE_BUCKET}"
-            aws --endpoint-url "${OBS_ENDPOINT}" s3api create-bucket --bucket "${OBS_STATE_BUCKET}"
+            if [ -n "${OBS_BUCKET_LOCATION}" ]; then
+              aws --endpoint-url "${OBS_ENDPOINT}" \
+                s3api create-bucket \
+                --bucket "${OBS_STATE_BUCKET}" \
+                --create-bucket-configuration "LocationConstraint=${OBS_BUCKET_LOCATION}"
+            else
+              aws --endpoint-url "${OBS_ENDPOINT}" \
+                s3api create-bucket \
+                --bucket "${OBS_STATE_BUCKET}"
+            fi
           fi
 
       - name: Download Terraform state from OBS
