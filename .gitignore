@@ -3,7 +3,6 @@ terraform/.terraform/
 terraform/.terraform.lock.hcl
 terraform/terraform.tfstate
 terraform/terraform.tfstate.*
-terraform/terraform.tfvars
 terraform/terraform.tfvars.json
 terraform/functions.auto.tfvars.json
 
