@@ -15,6 +15,9 @@ env:
   SWR_ORGANIZATION: ${{ secrets.SWR_ORGANIZATION }}
   SWR_NAMESPACE: ${{ secrets.SWR_NAMESPACE }}
   SWR_ENDPOINT: ${{ secrets.SWR_ENDPOINT }}
+  OBS_ENDPOINT: https://obs.sa-brazil-1.myhuaweicloud.com
+  OBS_STATE_BUCKET: tf-state-autofunctiongraph
+  OBS_STATE_KEY: fgs/functions.tfstate
 
 jobs:
   build-and-deploy:
@@ -112,12 +115,33 @@ jobs:
         with:
           terraform_version: 1.6.6
 
-      - name: Terraform Init
+      - name: Install AWS CLI for OBS state sync
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y awscli
+
+      - name: Configure AWS CLI for OBS
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+        run: |
+          aws configure set default.region "${HUAWEICLOUD_REGION}"
+          aws configure set default.s3.signature_version s3v4
+
+      - name: Download Terraform state from OBS
         working-directory: terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
+        run: |
+          set -euo pipefail
+          aws --endpoint-url "${OBS_ENDPOINT}" \
+            s3 cp "s3://${OBS_STATE_BUCKET}/${OBS_STATE_KEY}" terraform.tfstate \
+            || echo "No remote Terraform state found; starting with a fresh state"
+
+      - name: Terraform Init
+        working-directory: terraform
         run: terraform init
 
       - name: Import existing functions into state
@@ -199,7 +223,20 @@ jobs:
           TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
           TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+        run: terraform apply -auto-approve
+
+      - name: Upload Terraform state to OBS
+        if: always()
+        working-directory: terraform
+        env:
           AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
           AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
-        run: terraform apply -auto-approve
+        run: |
+          set -euo pipefail
+          if [ -f terraform.tfstate ]; then
+            aws --endpoint-url "${OBS_ENDPOINT}" \
+              s3 cp terraform.tfstate "s3://${OBS_STATE_BUCKET}/${OBS_STATE_KEY}"
+          else
+            echo "No local Terraform state found to upload"
+          fi

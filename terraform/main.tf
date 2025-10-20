@@ -7,17 +7,17 @@ terraform {
     }
   }
 
-  backend "s3" {
-    bucket                      = "tf-state-autofunctiongraph"
-    key                         = "fgs/functions.tfstate"
-    region                      = "sa-brazil-1"
-    endpoints                   = { s3 = "https://obs.sa-brazil-1.myhuaweicloud.com" }
-    skip_s3_checksum            = true
-    skip_credentials_validation = true
-    skip_region_validation      = true
-    skip_metadata_api_check     = true
-    skip_requesting_account_id  = true
-  }
+  # backend "s3" {
+  #   bucket                      = "tf-state-autofunctiongraph"
+  #   key                         = "fgs/functions.tfstate"
+  #   region                      = "sa-brazil-1"
+  #   endpoints                   = { s3 = "https://obs.sa-brazil-1.myhuaweicloud.com" }
+  #   skip_s3_checksum            = true
+  #   skip_credentials_validation = true
+  #   skip_region_validation      = true
+  #   skip_metadata_api_check     = true
+  #   skip_requesting_account_id  = true
+  # }
 }
 
 provider "huaweicloud" {
