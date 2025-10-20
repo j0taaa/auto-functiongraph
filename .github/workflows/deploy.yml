@@ -116,7 +116,9 @@ jobs:
           terraform_version: 1.6.6
 
       - name: Install AWS CLI for OBS state sync
-        uses: aws-actions/setup-aws-cli@v2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y awscli
 
       - name: Configure AWS CLI for OBS
         env:
