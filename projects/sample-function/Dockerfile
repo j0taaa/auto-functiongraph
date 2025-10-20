@@ -7,6 +7,7 @@ COPY src/ .
 
 EXPOSE 8000
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/function
 
-ENTRYPOINT ["python", "server.py"]
+ENTRYPOINT ["python", "/opt/function/server.py"]
