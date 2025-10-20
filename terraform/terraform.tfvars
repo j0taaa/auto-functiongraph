@@ -1,7 +1,8 @@
-region      = "sa-brazil-1"
-project_id  = "your-project-id"
-access_key  = "your-access-key"
-secret_key  = "your-secret-key"
+region         = "sa-brazil-1"
+project_id     = "your-project-id"
+access_key     = "your-access-key"
+secret_key     = "your-secret-key"
+security_token = ""
 
 functions = {
   sample-function = {

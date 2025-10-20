@@ -11,6 +11,7 @@ env:
   HUAWEICLOUD_PROJECT_ID: ${{ secrets.HUAWEICLOUD_PROJECT_ID }}
   HUAWEICLOUD_ACCESS_KEY: ${{ secrets.HUAWEICLOUD_ACCESS_KEY }}
   HUAWEICLOUD_SECRET_KEY: ${{ secrets.HUAWEICLOUD_SECRET_KEY }}
+  HUAWEICLOUD_SECURITY_TOKEN: ${{ secrets.HUAWEICLOUD_SECURITY_TOKEN }}
   HUAWEICLOUD_FUNCTION_AGENCY: ${{ secrets.HUAWEICLOUD_FUNCTION_AGENCY }}
   SWR_ORGANIZATION: ${{ secrets.SWR_ORGANIZATION }}
   SWR_NAMESPACE: ${{ secrets.SWR_NAMESPACE }}
@@ -129,15 +130,32 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
         run: |
           aws configure set default.region "${HUAWEICLOUD_REGION}"
           aws configure set default.s3.signature_version s3v4
+
+      - name: Ensure OBS state bucket exists
+        env:
+          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
+          AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
+        run: |
+          set -euo pipefail
+          if aws --endpoint-url "${OBS_ENDPOINT}" s3api head-bucket --bucket "${OBS_STATE_BUCKET}" 2>/dev/null; then
+            echo "OBS bucket ${OBS_STATE_BUCKET} already exists"
+          else
+            echo "Creating OBS bucket ${OBS_STATE_BUCKET}"
+            aws --endpoint-url "${OBS_ENDPOINT}" s3api create-bucket --bucket "${OBS_STATE_BUCKET}"
+          fi
 
       - name: Download Terraform state from OBS
         working-directory: terraform
         env:
           AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
           AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
         run: |
           set -euo pipefail
@@ -156,6 +174,7 @@ jobs:
           TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
           TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          TF_VAR_security_token: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
         run: |
           set -euo pipefail
           python <<'PY'
@@ -228,6 +247,7 @@ jobs:
           TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
           TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          TF_VAR_security_token: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
         run: terraform apply -auto-approve
 
       - name: Upload Terraform state to OBS
@@ -236,6 +256,7 @@ jobs:
         env:
           AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
+          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
           AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
         run: |
           set -euo pipefail

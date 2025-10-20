@@ -20,6 +20,13 @@ variable "secret_key" {
   sensitive   = true
 }
 
+variable "security_token" {
+  description = "Security token for Huawei Cloud temporary credentials."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "functions" {
   description = "Map of FunctionGraph function definitions keyed by logical name."
   type = map(object({
