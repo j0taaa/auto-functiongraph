@@ -6,6 +6,16 @@ terraform {
       version = ">= 1.52.0"
     }
   }
+
+  backend "s3" {
+    bucket                      = "tf-state-autofunctiongraph"
+    key                         = "fgs/functions.tfstate"
+    region                      = "sa-brazil-1"
+    endpoint                    = "https://obs.sa-brazil-1.myhuaweicloud.com"
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    force_path_style            = true
+  }
 }
 
 provider "huaweicloud" {
