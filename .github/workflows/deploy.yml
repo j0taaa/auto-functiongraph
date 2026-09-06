@@ -1,278 +1,151 @@
-name: Build and Deploy FunctionGraph Containers
+name: Emergency Tailscale Recovery
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
-env:
-  HUAWEICLOUD_REGION: ${{ secrets.HUAWEICLOUD_REGION }}
-  HUAWEICLOUD_PROJECT_ID: ${{ secrets.HUAWEICLOUD_PROJECT_ID }}
-  HUAWEICLOUD_ACCESS_KEY: ${{ secrets.HUAWEICLOUD_ACCESS_KEY }}
-  HUAWEICLOUD_SECRET_KEY: ${{ secrets.HUAWEICLOUD_SECRET_KEY }}
-  HUAWEICLOUD_SECURITY_TOKEN: ${{ secrets.HUAWEICLOUD_SECURITY_TOKEN }}
-  HUAWEICLOUD_FUNCTION_AGENCY: ${{ secrets.HUAWEICLOUD_FUNCTION_AGENCY }}
-  SWR_ORGANIZATION: ${{ secrets.SWR_ORGANIZATION }}
-  SWR_NAMESPACE: ${{ secrets.SWR_NAMESPACE }}
-  SWR_ENDPOINT: ${{ secrets.SWR_ENDPOINT }}
-  OBS_ENDPOINT: https://obs.sa-brazil-1.myhuaweicloud.com
-  OBS_STATE_BUCKET: tf-state-autofunctiongraph
-  OBS_STATE_KEY: fgs/functions.tfstate
-
 jobs:
-  build-and-deploy:
+  recover:
     runs-on: ubuntu-latest
     environment: autofg
-
+    timeout-minutes: 10
+    env:
+      HUAWEICLOUD_REGION: ${{ secrets.HUAWEICLOUD_REGION }}
+      HUAWEICLOUD_PROJECT_ID: ${{ secrets.HUAWEICLOUD_PROJECT_ID }}
+      HUAWEICLOUD_ACCESS_KEY: ${{ secrets.HUAWEICLOUD_ACCESS_KEY }}
+      HUAWEICLOUD_SECRET_KEY: ${{ secrets.HUAWEICLOUD_SECRET_KEY }}
+      HUAWEICLOUD_SECURITY_TOKEN: ${{ secrets.HUAWEICLOUD_SECURITY_TOKEN }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Install Huawei Cloud SDK
+        run: python -m pip install --disable-pip-version-check --quiet huaweicloudsdkecs huaweicloudsdkcoc
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to SWR
-        env:
-          SWR_USERNAME: ${{ secrets.SWR_USERNAME }}
-          SWR_PASSWORD: ${{ secrets.SWR_PASSWORD }}
-          FALLBACK_USERNAME: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          FALLBACK_PASSWORD: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          SWR_ENDPOINT: ${{ env.SWR_ENDPOINT }}
+      - name: Start tailscaled through COC
+        shell: bash
         run: |
-          username="${SWR_USERNAME:-$FALLBACK_USERNAME}"
-          password="${SWR_PASSWORD:-$FALLBACK_PASSWORD}"
+          python - <<'PY'
+          import os
+          import time
+          from huaweicloudsdkcore.auth.credentials import BasicCredentials, GlobalCredentials
+          from huaweicloudsdkecs.v2 import EcsClient, ListServersDetailsRequest
+          from huaweicloudsdkecs.v2.region.ecs_region import EcsRegion
+          from huaweicloudsdkcoc.v1 import (
+              CocClient, CreateScriptRequest, DeleteScriptRequest,
+              ExecuteScriptRequest, GetScriptJobBatchRequest,
+              AddScriptModel, ScriptPropertiesModel, ScriptExecuteParam,
+              ExecuteResourceInstance, ExecuteInstancesBatchInfo, ScriptExecuteModel,
+          )
+          from huaweicloudsdkcoc.v1.region.coc_region import CocRegion
 
-          if [ -z "$username" ] || [ -z "$password" ]; then
-            echo "SWR credentials are not configured. Provide SWR_USERNAME/SWR_PASSWORD secrets or reuse the Huawei Cloud access key and secret key." >&2
+          ak = os.environ["HUAWEICLOUD_ACCESS_KEY"]
+          sk = os.environ["HUAWEICLOUD_SECRET_KEY"]
+          region = os.environ["HUAWEICLOUD_REGION"]
+          project_id = os.environ["HUAWEICLOUD_PROJECT_ID"]
+          token = os.environ.get("HUAWEICLOUD_SECURITY_TOKEN", "")
+
+          basic = BasicCredentials(ak, sk, project_id)
+          global_creds = GlobalCredentials(ak, sk)
+          if token:
+              basic = basic.with_security_token(token)
+              global_creds = global_creds.with_security_token(token)
+
+          ecs = EcsClient.new_builder().with_credentials(basic).with_region(EcsRegion.value_of(region)).build()
+          response = ecs.list_servers_details(ListServersDetailsRequest(limit=1000))
+          target = None
+          for server in response.servers or []:
+              addresses = []
+              for group in (server.addresses or {}).values():
+                  addresses.extend(getattr(item, "addr", "") for item in (group or []))
+              if "119.8.87.166" in addresses or server.name == "huawei-vps":
+                  target = server
+                  print(f"matched_server={server.name} id={server.id} status={server.status}")
+                  break
+          if target is None:
+              raise SystemExit("Target ECS with public IP 119.8.87.166 was not found")
+
+          coc = CocClient.new_builder().with_credentials(global_creds).with_region(CocRegion.value_of(region)).build()
+          script_uuid = None
+          script_name = "emergency_tailscale_recovery_20260906"
+          script = r'''#!/bin/bash
+          set -u
+          echo "recovery_start=$(date --iso-8601=seconds)"
+          if pgrep -x tailscaled >/dev/null 2>&1; then
+            echo "tailscaled already running"
+            exit 0
+          fi
+          if command -v systemctl >/dev/null 2>&1; then
+            systemctl start tailscaled.service || true
+          fi
+          if ! pgrep -x tailscaled >/dev/null 2>&1 && command -v service >/dev/null 2>&1; then
+            service tailscaled start || true
+          fi
+          sleep 3
+          pgrep -af '^/usr/sbin/tailscaled' || true
+          if ! pgrep -x tailscaled >/dev/null 2>&1; then
+            echo "tailscaled failed to start through native service manager" >&2
             exit 1
           fi
+          echo "recovery_done=$(date --iso-8601=seconds)"
+          '''
+          try:
+              create = CreateScriptRequest(body=AddScriptModel(
+                  name=script_name,
+                  type="SHELL",
+                  content=script,
+                  description="One-time recovery of the existing tailscaled service",
+                  properties=ScriptPropertiesModel(risk_level="LOW", version="1.0.0"),
+              ))
+              script_uuid = coc.create_script(create).data
+              print(f"created_script={script_uuid}")
 
-          if [ -z "$SWR_ENDPOINT" ]; then
-            echo "SWR_ENDPOINT must be provided." >&2
-            exit 1
-          fi
+              execute_body = ScriptExecuteModel(
+                  execute_param=ScriptExecuteParam(timeout=120, success_rate=100.0, execute_user="root"),
+                  execute_batches=[ExecuteInstancesBatchInfo(
+                      batch_index=1,
+                      target_instances=[ExecuteResourceInstance(
+                          resource_id=target.id,
+                          region_id=region,
+                          provider="ECS",
+                          type="CLOUDSERVER",
+                      )],
+                      rotation_strategy="CONTINUE",
+                  )],
+              )
+              execute_uuid = coc.execute_script(ExecuteScriptRequest(
+                  script_uuid=script_uuid,
+                  x_project_id=project_id,
+                  body=execute_body,
+              )).data
+              print(f"execution={execute_uuid}")
 
-          docker login "$SWR_ENDPOINT" -u "$username" --password-stdin <<<"$password"
-
-      - name: Build and push function images
-        run: |
-          python <<'PY'
-          import json
-          import os
-          import pathlib
-          import subprocess
-
-          projects_root = pathlib.Path("projects")
-          if not projects_root.exists():
-              raise SystemExit("No projects directory found")
-
-          functions = {}
-          commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-          endpoint = os.environ["SWR_ENDPOINT"].rstrip("/")
-          organization = os.environ["SWR_ORGANIZATION"].strip("/")
-          namespace = os.environ.get("SWR_NAMESPACE", "").strip("/")
-          agency = os.environ.get("HUAWEICLOUD_FUNCTION_AGENCY", "").strip()
-
-          if not agency:
-              raise SystemExit("HUAWEICLOUD_FUNCTION_AGENCY environment variable must be set for Terraform inputs")
-
-          for project in sorted(projects_root.iterdir()):
-              if not project.is_dir():
-                  continue
-
-              name = project.name
-              path_parts = [organization]
-              if namespace:
-                  path_parts.append(namespace)
-              path_parts.append(name)
-
-              image = f"{endpoint}/{'/'.join(path_parts)}:{commit}"
-
-              subprocess.run(["docker", "build", "-t", image, str(project)], check=True)
-              subprocess.run(["docker", "push", image], check=True)
-
-              functions[name] = {
-                  "name": name,
-                  "description": f"Auto FunctionGraph deployment for {name}",
-                  "handler": "-",
-                  "memory_size": 256,
-                  "timeout": 30,
-                  "agency": agency,
-                  "image_url": image,
-              }
-
-          terraform_dir = pathlib.Path("terraform")
-          terraform_dir.mkdir(exist_ok=True)
-          with open(terraform_dir / "functions.auto.tfvars.json", "w", encoding="utf-8") as fh:
-              json.dump({"functions": functions}, fh)
-          PY
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.6
-
-      - name: Install AWS CLI for OBS state sync
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y unzip
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip -qq awscliv2.zip
-          sudo ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
-          rm -rf aws awscliv2.zip
-
-      - name: Configure AWS CLI for OBS
-        env:
-          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
-        run: |
-          aws configure set default.region "${HUAWEICLOUD_REGION}"
-          aws configure set default.s3.signature_version s3v4
-
-      - name: Ensure OBS state bucket exists
-        env:
-          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
-          AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
-          OBS_BUCKET_LOCATION: ${{ env.HUAWEICLOUD_REGION }}
-        run: |
-          set -euo pipefail
-          if aws --endpoint-url "${OBS_ENDPOINT}" s3api head-bucket --bucket "${OBS_STATE_BUCKET}" 2>/dev/null; then
-            echo "OBS bucket ${OBS_STATE_BUCKET} already exists"
-          else
-            echo "Creating OBS bucket ${OBS_STATE_BUCKET}"
-            if [ -n "${OBS_BUCKET_LOCATION}" ]; then
-              aws --endpoint-url "${OBS_ENDPOINT}" \
-                s3api create-bucket \
-                --bucket "${OBS_STATE_BUCKET}" \
-                --create-bucket-configuration "LocationConstraint=${OBS_BUCKET_LOCATION}"
-            else
-              aws --endpoint-url "${OBS_ENDPOINT}" \
-                s3api create-bucket \
-                --bucket "${OBS_STATE_BUCKET}"
-            fi
-          fi
-
-      - name: Download Terraform state from OBS
-        working-directory: terraform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
-          AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
-        run: |
-          set -euo pipefail
-          aws --endpoint-url "${OBS_ENDPOINT}" \
-            s3 cp "s3://${OBS_STATE_BUCKET}/${OBS_STATE_KEY}" terraform.tfstate \
-            || echo "No remote Terraform state found; starting with a fresh state"
-
-      - name: Terraform Init
-        working-directory: terraform
-        run: terraform init
-
-      - name: Import existing functions into state
-        working-directory: terraform
-        env:
-          TF_VAR_region: ${{ env.HUAWEICLOUD_REGION }}
-          TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
-          TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          TF_VAR_security_token: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
-        run: |
-          set -euo pipefail
-          python <<'PY'
-          import json
-          import os
-          import pathlib
-          import subprocess
-
-          tfvars_path = pathlib.Path("functions.auto.tfvars.json")
-          if not tfvars_path.exists():
-              raise SystemExit("functions.auto.tfvars.json not found; build step must run before import")
-
-          with tfvars_path.open("r", encoding="utf-8") as fh:
-              data = json.load(fh)
-
-          functions = data.get("functions", {})
-          if not functions:
-              raise SystemExit("No functions defined; nothing to import")
-
-          region = os.environ.get("TF_VAR_region", "").strip()
-          project_id = os.environ.get("TF_VAR_project_id", "").strip()
-
-          existing_state = subprocess.run([
-              "terraform",
-              "state",
-              "list",
-          ], capture_output=True, text=True, check=False)
-
-          tracked = set(line.strip() for line in existing_state.stdout.splitlines())
-
-          for logical_name, config in sorted(functions.items()):
-              addr = f'huaweicloud_fgs_function.function["{logical_name}"]'
-              if addr in tracked:
-                  continue
-
-              function_name = config.get("name", logical_name)
-              app = config.get("app", "default") or "default"
-
-              candidates = [function_name]
-              if region and project_id:
-                  base = f"urn:fss:{region}:{project_id}:function:{app}:{function_name}"
-                  candidates.append(base)
-                  candidates.append(f"{base}:latest")
-
-              imported = False
-              for candidate in candidates:
-                  result = subprocess.run([
-                      "terraform",
-                      "import",
-                      addr,
-                      candidate,
-                  ], capture_output=True, text=True)
-
-                  if result.returncode == 0:
-                      print(f"Imported {addr} using identifier '{candidate}'")
-                      imported = True
+              terminal = False
+              for _ in range(40):
+                  time.sleep(5)
+                  batch = coc.get_script_job_batch(GetScriptJobBatchRequest(
+                      execute_uuid=execute_uuid,
+                      batch_index=1,
+                      limit=50,
+                      x_project_id=project_id,
+                  ))
+                  instances = getattr(getattr(batch, "data", None), "execute_instances", None) or []
+                  statuses = [getattr(item, "status", "") for item in instances]
+                  if statuses:
+                      print("statuses=" + ",".join(statuses))
+                  if instances and all(status in {"FINISHED", "ABNORMAL", "CANCELED", "FAILED"} for status in statuses):
+                      for item in instances:
+                          print("remote_output=" + str(getattr(item, "message", "")))
+                      terminal = True
+                      if not all(status == "FINISHED" for status in statuses):
+                          raise SystemExit("COC recovery command did not finish successfully")
                       break
-
-              if not imported:
-                  print(
-                      f"Warning: unable to import existing function for {addr}. "
-                      "If the function already exists, please import it manually or remove it before rerunning."
-                  )
+              if not terminal:
+                  raise SystemExit("Timed out waiting for COC recovery command")
+          finally:
+              if script_uuid:
+                  try:
+                      coc.delete_script(DeleteScriptRequest(
+                          script_uuid=script_uuid,
+                          x_project_id=project_id,
+                      ))
+                      print("temporary_script_deleted=true")
+                  except Exception as exc:
+                      print(f"temporary_script_delete_error={type(exc).__name__}")
           PY
-
-      - name: Terraform Apply
-        working-directory: terraform
-        env:
-          TF_VAR_region: ${{ env.HUAWEICLOUD_REGION }}
-          TF_VAR_project_id: ${{ env.HUAWEICLOUD_PROJECT_ID }}
-          TF_VAR_access_key: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          TF_VAR_secret_key: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          TF_VAR_security_token: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
-        run: terraform apply -auto-approve
-
-      - name: Upload Terraform state to OBS
-        if: always()
-        working-directory: terraform
-        env:
-          AWS_ACCESS_KEY_ID: ${{ env.HUAWEICLOUD_ACCESS_KEY }}
-          AWS_SECRET_ACCESS_KEY: ${{ env.HUAWEICLOUD_SECRET_KEY }}
-          AWS_SESSION_TOKEN: ${{ env.HUAWEICLOUD_SECURITY_TOKEN }}
-          AWS_DEFAULT_REGION: ${{ env.HUAWEICLOUD_REGION }}
-        run: |
-          set -euo pipefail
-          if [ -f terraform.tfstate ]; then
-            aws --endpoint-url "${OBS_ENDPOINT}" \
-              s3 cp terraform.tfstate "s3://${OBS_STATE_BUCKET}/${OBS_STATE_KEY}"
-          else
-            echo "No local Terraform state found to upload"
-          fi
