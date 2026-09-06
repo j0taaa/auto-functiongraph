@@ -63,28 +63,28 @@ jobs:
 
           coc = CocClient.new_builder().with_credentials(global_creds).with_region(CocRegion.value_of("ap-southeast-3")).build()
           resource = None
-          pairs = [
-              ("ECS", "cloudservers"), ("ecs", "cloudservers"),
-              ("ECS", "CLOUDSERVER"), ("ECS", "CLOUDSERVERS"),
-              ("HCSS", "cloudservers"), ("hcss", "cloudservers"),
-              ("HCSS", "CLOUDSERVER"),
+          queries = [
+              ("id", {"resource_id_list": [target.id]}),
+              ("name", {"name": target.name}),
+              ("public_ip", {"ip": "119.8.87.166"}),
+              ("all", {}),
           ]
-          for provider, resource_type in pairs:
+          for label, filters in queries:
               try:
                   found = coc.list_resources(ListResourcesRequest(
-                      provider=provider,
-                      type=resource_type,
+                      provider="ecs",
+                      type="cloudservers",
                       limit=100,
-                      ip="119.8.87.166",
+                      **filters,
                   )).data or []
               except Exception as exc:
-                  print(f"resource_lookup={provider}/{resource_type} code={getattr(exc, 'error_code', '')} message={getattr(exc, 'error_msg', type(exc).__name__)}")
+                  print(f"resource_lookup={label} code={getattr(exc, 'error_code', '')} message={getattr(exc, 'error_msg', type(exc).__name__)}")
                   continue
-              print(f"resource_lookup={provider}/{resource_type} count={len(found)}")
+              print(f"resource_lookup={label} count={len(found)}")
               for item in found:
-                  print(f"candidate={item.name} provider={item.provider} type={item.type} region={item.region_id} agent={item.agent_state} operable={item.operable}")
                   if item.resource_id == target.id or item.name == target.name:
                       resource = item
+                      print(f"candidate={item.name} provider={item.provider} type={item.type} region={item.region_id} agent={item.agent_state} operable={item.operable}")
                       break
               if resource is not None:
                   break
