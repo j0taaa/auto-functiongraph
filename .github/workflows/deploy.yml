@@ -78,7 +78,7 @@ jobs:
                       ip="119.8.87.166",
                   )).data or []
               except Exception as exc:
-                  print(f"resource_lookup={provider}/{resource_type} error={type(exc).__name__}")
+                  print(f"resource_lookup={provider}/{resource_type} code={getattr(exc, 'error_code', '')} message={getattr(exc, 'error_msg', type(exc).__name__)}")
                   continue
               print(f"resource_lookup={provider}/{resource_type} count={len(found)}")
               for item in found:
