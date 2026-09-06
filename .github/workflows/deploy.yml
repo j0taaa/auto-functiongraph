@@ -74,7 +74,7 @@ jobs:
                   found = coc.list_resources(ListResourcesRequest(
                       provider=provider,
                       type=resource_type,
-                      limit=500,
+                      limit=100,
                       ip="119.8.87.166",
                   )).data or []
               except Exception as exc:
