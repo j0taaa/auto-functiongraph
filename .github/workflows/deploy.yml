@@ -61,7 +61,7 @@ jobs:
           if target is None:
               raise SystemExit("Target ECS with public IP 119.8.87.166 was not found")
 
-          coc = CocClient.new_builder().with_credentials(global_creds).with_region(CocRegion.value_of("eu-west-101")).build()
+          coc = CocClient.new_builder().with_credentials(global_creds).with_region(CocRegion.value_of("ap-southeast-3")).build()
           script_uuid = None
           script_name = "emergency_tailscale_recovery_20260906"
           script = r'''#!/bin/bash
